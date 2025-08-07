@@ -12,7 +12,6 @@ from reportlab.lib.units import inch
 from reportlab.lib import colors
 from werkzeug.utils import secure_filename
 import uuid
-from io import BytesIO
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
@@ -164,13 +163,28 @@ def download_pdf(visit_id):
     if not visit:
         return "Visit not found", 404
     
-    # Generate PDF in temporary file
-    pdf_filename = f"visit_{visit_id}.pdf"
-    temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-    pdf_path = temp_pdf.name
-    temp_pdf.close()
-    
-    doc = SimpleDocTemplate(pdf_path, pagesize=letter)
+    try:
+        # Try to generate PDF in memory first
+        buffer = BytesIO()
+        pdf_filename = f"visit_{visit_id}.pdf"
+        
+        # If in-memory approach fails, fall back to temporary file
+        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        
+        # If we get here, in-memory approach is working
+        use_buffer = True
+    except Exception as e:
+        # Fall back to temporary file approach
+        app.logger.warning(f"Falling back to temporary file for PDF: {str(e)}")
+        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        pdf_path = temp_pdf.name
+        temp_pdf.close()
+        
+        try:
+            doc = SimpleDocTemplate(pdf_path, pagesize=letter)
+            use_buffer = False
+        except Exception as e:
+            return f"Error creating PDF document: {str(e)}", 500
     styles = getSampleStyleSheet()
     story = []
     
@@ -265,35 +279,53 @@ def download_pdf(visit_id):
     if visit.get('photo_data'):
         try:
             story.append(Paragraph("<b>Photo:</b>", styles['Heading3']))
-            # Create temporary image file from base64 data
+            # Decode base64 photo data
             photo_data = base64.b64decode(visit['photo_data'])
-            temp_img = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-            temp_img.write(photo_data)
-            temp_img.close()
             
-            img = Image(temp_img.name, width=4*inch, height=3*inch)
+            # Create image directly from the data
+            img_buffer = BytesIO(photo_data)
+            img = Image(img_buffer, width=4*inch, height=3*inch)
             story.append(img)
             story.append(Spacer(1, 12))
-            
-            # Clean up temporary image file
-            os.unlink(temp_img.name)
         except Exception as e:
             # If photo processing fails, continue without photo
-            story.append(Paragraph("<b>Photo:</b> Error loading image", styles['Normal']))
+            story.append(Paragraph(f"<b>Photo:</b> Error loading image: {str(e)}", styles['Normal']))
             story.append(Spacer(1, 12))
     
     # Build PDF
-    doc.build(story)
-    
-    # Send file and clean up
+    # Build the PDF
     try:
-        return send_file(pdf_path, as_attachment=True, download_name=pdf_filename)
+        doc.build(story)
+        
+        # Send file based on the approach used
+        if use_buffer:
+            # In-memory approach
+            buffer.seek(0)
+            return send_file(
+                buffer,
+                as_attachment=True,
+                download_name=pdf_filename,
+                mimetype='application/pdf'
+            )
+        else:
+            # Temporary file approach
+            return send_file(pdf_path, as_attachment=True, download_name=pdf_filename)
+    except Exception as e:
+        # If there was an error, clean up and return error message
+        if not use_buffer:
+            try:
+                os.unlink(pdf_path)
+            except:
+                pass
+        app.logger.error(f"PDF generation error: {str(e)}")
+        return f"Error generating PDF: {str(e)}", 500
     finally:
-        # Clean up temporary PDF file after sending
-        try:
-            os.unlink(pdf_path)
-        except:
-            pass
+        # Clean up temporary PDF file after sending if using that approach
+        if not use_buffer:
+            try:
+                os.unlink(pdf_path)
+            except:
+                pass
 
 @app.route('/photo/<visit_id>')
 def serve_photo(visit_id):
