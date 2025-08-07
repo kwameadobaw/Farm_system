@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Background Circle -->
+  <circle cx="50" cy="50" r="48" fill="#4caf50" />
+  
+  <!-- Leaf Shape -->
+  <path d="M70,30 C85,45 85,70 55,80 C45,85 30,80 25,70 C20,60 25,45 40,40 C55,35 65,45 70,30 Z" 
+        fill="#ffffff" />
+  
+  <!-- Leaf Vein -->
+  <path d="M55,80 C60,65 65,50 70,30" 
+        stroke="#4caf50" stroke-width="3" fill="none" />
+  
+  <!-- Small Leaf -->
+  <path d="M40,60 C30,55 25,45 35,40 C45,35 50,45 40,60 Z" 
+        fill="#c8e6c9" />
+</svg>
