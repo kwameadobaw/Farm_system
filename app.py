@@ -1,6 +1,9 @@
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, flash
 import json
 import os
+import tempfile
+import base64
+from io import BytesIO
 from datetime import datetime
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
@@ -9,19 +12,18 @@ from reportlab.lib.units import inch
 from reportlab.lib import colors
 from werkzeug.utils import secure_filename
 import uuid
+from io import BytesIO
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
-app.secret_key = 'your-secret-key-change-this-in-production'  # Change this in production
+app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
 
-# Admin credentials (in production, use environment variables or database)
-ADMIN_USERNAME = 'admin'
-ADMIN_PASSWORD = 'farmadmin123'
+# Admin credentials (use environment variables in production)
+ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'farmadmin123')
 
-# Ensure upload directory exists
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs('data', exist_ok=True)
+# In-memory storage for visits (in production, use a database)
+visits_data = []
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
@@ -29,33 +31,20 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def load_visits():
-    """Load all visits from JSON file"""
-    try:
-        with open('data/visits.json', 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return []
+    """Load all visits from in-memory storage"""
+    return visits_data
 
 def save_visit(visit_data):
-    """Save a new visit to JSON file"""
-    visits = load_visits()
+    """Save a new visit to in-memory storage"""
     visit_data['id'] = str(uuid.uuid4())
     visit_data['created_at'] = datetime.now().isoformat()
-    visits.append(visit_data)
-    
-    with open('data/visits.json', 'w') as f:
-        json.dump(visits, f, indent=2)
-    
+    visits_data.append(visit_data)
     return visit_data['id']
 
 def delete_visit(visit_id):
-    """Delete a visit from JSON file"""
-    visits = load_visits()
-    visits = [v for v in visits if v['id'] != visit_id]
-    
-    with open('data/visits.json', 'w') as f:
-        json.dump(visits, f, indent=2)
-    
+    """Delete a visit from in-memory storage"""
+    global visits_data
+    visits_data = [v for v in visits_data if v['id'] != visit_id]
     return True
 
 def require_auth(f):
@@ -110,15 +99,17 @@ def delete_visit_route(visit_id):
 @app.route('/submit_visit', methods=['POST'])
 def submit_visit():
     try:
-        # Handle file upload
+        # Handle file upload - store as base64
+        photo_data = None
         photo_filename = None
         if 'photo' in request.files:
             file = request.files['photo']
             if file and file.filename != '' and allowed_file(file.filename):
                 filename = secure_filename(file.filename)
-                unique_filename = f"{uuid.uuid4()}_{filename}"
-                file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
-                photo_filename = unique_filename
+                photo_filename = f"{uuid.uuid4()}_{filename}"
+                # Convert to base64 for storage
+                file_content = file.read()
+                photo_data = base64.b64encode(file_content).decode('utf-8')
         
         # Collect form data
         visit_data = {
@@ -145,6 +136,7 @@ def submit_visit():
             'crop_issues': request.form.getlist('crop_issues'),
             'livestock_issues': request.form.getlist('livestock_issues'),
             'photo': photo_filename,
+            'photo_data': photo_data,
             'video_link': request.form.get('video_link'),
             
             # Recommendations
@@ -172,10 +164,11 @@ def download_pdf(visit_id):
     if not visit:
         return "Visit not found", 404
     
-    # Generate PDF
+    # Generate PDF in temporary file
     pdf_filename = f"visit_{visit_id}.pdf"
-    pdf_path = os.path.join('temp', pdf_filename)
-    os.makedirs('temp', exist_ok=True)
+    temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+    pdf_path = temp_pdf.name
+    temp_pdf.close()
     
     doc = SimpleDocTemplate(pdf_path, pagesize=letter)
     styles = getSampleStyleSheet()
@@ -269,18 +262,68 @@ def download_pdf(visit_id):
     story.append(Spacer(1, 12))
     
     # Add photo if exists
-    if visit.get('photo'):
-        photo_path = os.path.join(app.config['UPLOAD_FOLDER'], visit['photo'])
-        if os.path.exists(photo_path):
+    if visit.get('photo_data'):
+        try:
             story.append(Paragraph("<b>Photo:</b>", styles['Heading3']))
-            img = Image(photo_path, width=4*inch, height=3*inch)
+            # Create temporary image file from base64 data
+            photo_data = base64.b64decode(visit['photo_data'])
+            temp_img = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+            temp_img.write(photo_data)
+            temp_img.close()
+            
+            img = Image(temp_img.name, width=4*inch, height=3*inch)
             story.append(img)
+            story.append(Spacer(1, 12))
+            
+            # Clean up temporary image file
+            os.unlink(temp_img.name)
+        except Exception as e:
+            # If photo processing fails, continue without photo
+            story.append(Paragraph("<b>Photo:</b> Error loading image", styles['Normal']))
             story.append(Spacer(1, 12))
     
     # Build PDF
     doc.build(story)
     
-    return send_file(pdf_path, as_attachment=True, download_name=pdf_filename)
+    # Send file and clean up
+    try:
+        return send_file(pdf_path, as_attachment=True, download_name=pdf_filename)
+    finally:
+        # Clean up temporary PDF file after sending
+        try:
+            os.unlink(pdf_path)
+        except:
+            pass
+
+@app.route('/photo/<visit_id>')
+def serve_photo(visit_id):
+    """Serve photo for a specific visit"""
+    visits = load_visits()
+    visit = next((v for v in visits if v['id'] == visit_id), None)
+    
+    if not visit or not visit.get('photo_data'):
+        return "Photo not found", 404
+    
+    try:
+        # Decode base64 photo data
+        photo_data = base64.b64decode(visit['photo_data'])
+        
+        # Determine content type based on filename
+        filename = visit.get('photo', 'image.png')
+        if filename.lower().endswith(('.jpg', '.jpeg')):
+            mimetype = 'image/jpeg'
+        elif filename.lower().endswith('.gif'):
+            mimetype = 'image/gif'
+        else:
+            mimetype = 'image/png'
+        
+        return send_file(
+            BytesIO(photo_data),
+            mimetype=mimetype,
+            as_attachment=False
+        )
+    except Exception as e:
+        return "Error loading photo", 500
 
 @app.route('/api/visits')
 def api_visits():

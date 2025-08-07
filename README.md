@@ -27,6 +27,8 @@ A modern web application for managing farm visits with comprehensive data collec
 
 ## Installation
 
+### Local Development
+
 1. **Clone or download the project files**
 
 2. **Install dependencies**:
@@ -34,14 +36,37 @@ A modern web application for managing farm visits with comprehensive data collec
    pip install -r requirements.txt
    ```
 
-3. **Run the application**:
+3. **Set environment variables** (optional for local development):
+   ```bash
+   set FLASK_SECRET_KEY=your-secret-key-here
+   set ADMIN_USERNAME=admin
+   set ADMIN_PASSWORD=your-password
+   ```
+
+4. **Run the application**:
    ```bash
    python app.py
    ```
 
-4. **Access the application**:
+5. **Access the application**:
    - Main form: http://localhost:5000
    - Admin panel: http://localhost:5000/admin
+
+### Vercel Deployment
+
+1. **Deploy to Vercel**:
+   - Connect your repository to Vercel
+   - The `vercel.json` file is already configured
+
+2. **Set environment variables in Vercel dashboard**:
+   - `FLASK_SECRET_KEY`: A secure random string
+   - `ADMIN_USERNAME`: Your admin username
+   - `ADMIN_PASSWORD`: Your admin password
+
+3. **Important for Vercel deployment**:
+   - Data is stored in memory (resets on each deployment)
+   - Photos are stored as base64 in memory
+   - No persistent file storage due to Vercel's read-only filesystem
 
 ## Usage
 

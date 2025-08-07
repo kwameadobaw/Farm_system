@@ -574,7 +574,7 @@
                     ${visit.photo ? `
                         <div class="detail-section">
                             <h4><i class="fas fa-camera"></i> Photo</h4>
-                            <img src="/static/uploads/${visit.photo}" alt="Farm Photo" class="photo-preview" onclick="openModal('/static/uploads/${visit.photo}')">
+                            <img src="/photo/${visit.id}" alt="Farm Photo" class="photo-preview" onclick="openModal('/photo/${visit.id}')">
                         </div>
                     ` : ''}
                     
