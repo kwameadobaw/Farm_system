@@ -64,18 +64,22 @@ A modern web application for managing farm visits with comprehensive data collec
    - `ADMIN_PASSWORD`: Your admin password
 
 3. **Important for Vercel deployment**:
-   - Data is stored in memory (resets on each deployment)
+   - Data is stored in memory and will reset on each deployment or server restart
+   - All farm visit entries will be lost when the Vercel instance restarts
    - Photos are stored as base64 in memory
    - No persistent file storage due to Vercel's read-only filesystem
+   - For production use with persistent data, consider using a database service like MongoDB Atlas, PostgreSQL on Supabase, or similar cloud database services
 
 ## Usage
 
 ### Adding a Farm Visit
-1. Navigate to the main page (http://localhost:5000)
+1. Navigate to the main page (http://localhost:5000 or your Vercel deployment URL)
 2. Fill out all required fields in the form
 3. Upload photos if available
 4. Submit the form
-5. Data will be saved to `visits.json`
+5. Data storage:
+   - Local development: Data will be saved to `visits.json`
+   - Vercel deployment: Data will be stored in memory (temporary)
 
 ### Managing Visits (Admin)
 1. Navigate to the admin panel (http://localhost:5000/admin)
@@ -108,19 +112,29 @@ Farm/
 
 ## Data Storage
 
-Visit data is stored in JSON format in `visits.json`. Each visit record includes:
+### Local Development
+In local development, visit data is stored in JSON format in `visits.json`. Each visit record includes:
 - Unique ID
 - All form fields
 - Timestamp
 - Photo filename (if uploaded)
 
+### Vercel Deployment
+When deployed on Vercel, the application automatically switches to in-memory storage due to Vercel's read-only filesystem. This means:
+- Data is stored in memory only and will be lost when the server restarts
+- All data resets on each deployment or when Vercel's serverless function instances are recycled
+- For production use, implement a proper database solution (see Security Notes below)
+
 ## Security Notes
 
-- This is a development application
-- For production use, implement proper authentication
-- Consider using a proper database instead of JSON
-- Add input validation and sanitization
-- Use HTTPS in production
+- This is a development application not intended for production use as-is
+- For production deployment:
+  - Implement proper authentication with secure password hashing
+  - Replace the JSON/in-memory storage with a proper database (MongoDB, PostgreSQL, MySQL)
+  - For Vercel deployment, use a cloud database service (MongoDB Atlas, Supabase, etc.)
+  - Add comprehensive input validation and sanitization
+  - Use HTTPS in production (automatic with Vercel)
+  - Set strong, unique environment variables for secrets
 
 ## Customization
 

@@ -21,8 +21,16 @@ app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-pr
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'farmadmin123')
 
-# File path for visits data
-VISITS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'visits.json')
+# Storage configuration
+IS_VERCEL = 'VERCEL' in os.environ
+
+# Use in-memory storage for Vercel, file storage for local development
+if IS_VERCEL:
+    # In-memory storage for Vercel deployment
+    visits_data = []
+else:
+    # File path for visits data in local development
+    VISITS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'visits.json')
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
@@ -30,39 +38,49 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def load_visits():
-    """Load all visits from JSON file"""
-    try:
-        # Create data directory if it doesn't exist
-        os.makedirs(os.path.dirname(VISITS_FILE), exist_ok=True)
-        
-        # Create file if it doesn't exist
-        if not os.path.exists(VISITS_FILE):
-            with open(VISITS_FILE, 'w') as f:
-                json.dump([], f)
-        
-        # Read visits from file
-        with open(VISITS_FILE, 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        app.logger.error(f"Error loading visits: {str(e)}")
-        return []
+    """Load all visits from storage (memory or file)"""
+    if IS_VERCEL:
+        # Return in-memory data for Vercel
+        return visits_data
+    else:
+        # Load from JSON file for local development
+        try:
+            # Create data directory if it doesn't exist
+            os.makedirs(os.path.dirname(VISITS_FILE), exist_ok=True)
+            
+            # Create file if it doesn't exist
+            if not os.path.exists(VISITS_FILE):
+                with open(VISITS_FILE, 'w') as f:
+                    json.dump([], f)
+            
+            # Read visits from file
+            with open(VISITS_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            app.logger.error(f"Error loading visits: {str(e)}")
+            return []
 
 def save_visit(visit_data):
-    """Save a new visit to JSON file"""
+    """Save a new visit to storage (memory or file)"""
     try:
         # Generate ID and timestamp
         visit_data['id'] = str(uuid.uuid4())
         visit_data['created_at'] = datetime.now().isoformat()
         
-        # Load existing visits
-        visits = load_visits()
-        
-        # Add new visit
-        visits.append(visit_data)
-        
-        # Save all visits back to file
-        with open(VISITS_FILE, 'w') as f:
-            json.dump(visits, f, indent=2)
+        if IS_VERCEL:
+            # Add to in-memory storage for Vercel
+            visits_data.append(visit_data)
+        else:
+            # Save to JSON file for local development
+            # Load existing visits
+            visits = load_visits()
+            
+            # Add new visit
+            visits.append(visit_data)
+            
+            # Save all visits back to file
+            with open(VISITS_FILE, 'w') as f:
+                json.dump(visits, f, indent=2)
         
         return visit_data['id']
     except Exception as e:
@@ -70,17 +88,23 @@ def save_visit(visit_data):
         return None
 
 def delete_visit(visit_id):
-    """Delete a visit from JSON file"""
+    """Delete a visit from storage (memory or file)"""
     try:
-        # Load existing visits
-        visits = load_visits()
-        
-        # Filter out the visit to delete
-        updated_visits = [v for v in visits if v['id'] != visit_id]
-        
-        # Save updated visits back to file
-        with open(VISITS_FILE, 'w') as f:
-            json.dump(updated_visits, f, indent=2)
+        if IS_VERCEL:
+            # Delete from in-memory storage for Vercel
+            global visits_data
+            visits_data = [v for v in visits_data if v['id'] != visit_id]
+        else:
+            # Delete from JSON file for local development
+            # Load existing visits
+            visits = load_visits()
+            
+            # Filter out the visit to delete
+            updated_visits = [v for v in visits if v['id'] != visit_id]
+            
+            # Save updated visits back to file
+            with open(VISITS_FILE, 'w') as f:
+                json.dump(updated_visits, f, indent=2)
         
         return True
     except Exception as e:
